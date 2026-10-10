@@ -1,0 +1,5 @@
+name: Solar Cells Optimizer
+icon: ☀️
+description: Real time solar cells optimizer demo.
+bricks:
+  - arduino:web_ui
