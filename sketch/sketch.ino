@@ -4,8 +4,12 @@
 #include <Arduino_RouterBridge.h>
 
 #include "hardware.hh"
+#include "led_matrix.hh"
 
 const unsigned long SAMPLE_PERIOD_MS = 50;
+const unsigned long MATRIX_PUSH_PERIOD_MS = 400;
+
+CurrentGraph current_graph;
 
 int32_t get_cell_count() { return (int32_t)CELLS_COUNT; }
 
@@ -41,6 +45,7 @@ void setup() {
   for (size_t i = 0; i < CELLS_COUNT; ++i) {
     CELLS[i].begin();
   }
+  current_graph.begin();
 
   Bridge.begin();
   Bridge.notify("ready", true);
@@ -50,32 +55,38 @@ void setup() {
 }
 
 void loop() {
-  static unsigned long t_last_sample = 0;
   unsigned long now = millis();
-  if (now - t_last_sample < SAMPLE_PERIOD_MS)
-    return;
-  t_last_sample = now;
+  int32_t raw = analogRead(PROBE_PIN); // 0..16383, negative means ADC error
 
-  // 0..16383 (14 bit), negative means ADC error.
-  int32_t raw = analogRead(PROBE_PIN);
+  static unsigned long t_last_sample = 0;
+  if (now - t_last_sample >= SAMPLE_PERIOD_MS) {
+    t_last_sample = now;
 
-  int32_t mask = 0;
-  for (size_t i = 0; i < CELLS_COUNT; i++) {
-    if (CELLS[i].bypassed)
-      mask |= (1L << i);
+    int32_t mask = 0;
+    for (size_t i = 0; i < CELLS_COUNT; i++) {
+      if (CELLS[i].bypassed)
+        mask |= (1L << i);
+    }
+
+    std::vector<int32_t> f;
+    f.reserve(3);
+    f.push_back((int32_t)now);
+    f.push_back(raw);
+    f.push_back(mask);
+    Bridge.notify("sample", f);
+
+    Serial.print("t=");
+    Serial.print(now);
+    Serial.print(" raw=");
+    Serial.print(raw);
+    Serial.print(" mask=0b");
+    Serial.println(mask, BIN);
   }
 
-  std::vector<int32_t> f;
-  f.reserve(3);
-  f.push_back((int32_t)now);
-  f.push_back(raw);
-  f.push_back(mask);
-  Bridge.notify("sample", f); // ~15 B, well under the 256 B limit
-
-  Serial.print("t=");
-  Serial.print(now);
-  Serial.print(" raw=");
-  Serial.print(raw);
-  Serial.print(" mask=0b");
-  Serial.println(mask, BIN);
+  static unsigned long t_last_graph = 0;
+  if (now - t_last_graph >= MATRIX_PUSH_PERIOD_MS) {
+    t_last_graph = now;
+    current_graph.push(raw);
+    current_graph.render();
+  }
 }
