@@ -1,5 +1,7 @@
-#include <Arduino_RouterBridge.h>
+#include <cstdint>
 #include <vector>
+
+#include <Arduino_RouterBridge.h>
 
 #include "hardware.hh"
 
