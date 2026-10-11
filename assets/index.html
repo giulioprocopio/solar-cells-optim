@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Solar Cells Optimizer</title>
+    <link rel="stylesheet" href="libs/pico.min.css" />
+    <style>
+      /* Compact: Pico derives article padding, grid gaps, heading margins
+         and form-element padding from these, so one change cascades everywhere. */
+      :root {
+        --pico-font-size: 100%;
+        --pico-spacing: 0.6rem;
+        --pico-typography-spacing-vertical: 0.5rem;
+        --pico-form-element-spacing-vertical: 0.5rem;
+        --pico-form-element-spacing-horizontal: 0.75rem;
+      }
+
+      /* Solar accent (amber/gold), auto light/dark via prefers-color-scheme --
+         no data-theme is set anywhere, so the OS/browser preference decides. */
+      :root {
+        --pico-primary: #b45309;
+        --pico-primary-background: #d97706;
+        --pico-primary-border: var(--pico-primary-background);
+        --pico-primary-underline: rgba(180, 83, 9, 0.5);
+        --pico-primary-hover: #92400e;
+        --pico-primary-hover-background: #b45309;
+        --pico-primary-hover-border: var(--pico-primary-hover-background);
+        --pico-primary-hover-underline: var(--pico-primary-hover);
+        --pico-primary-focus: rgba(217, 119, 6, 0.375);
+        --pico-primary-inverse: #fff;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --pico-primary: #fbbf24;
+          --pico-primary-background: #b45309;
+          --pico-primary-border: var(--pico-primary-background);
+          --pico-primary-underline: rgba(251, 191, 36, 0.5);
+          --pico-primary-hover: #fcd34d;
+          --pico-primary-hover-background: #92400e;
+          --pico-primary-hover-border: var(--pico-primary-hover-background);
+          --pico-primary-hover-underline: var(--pico-primary-hover);
+          --pico-primary-focus: rgba(251, 191, 36, 0.375);
+          --pico-primary-inverse: #fff;
+        }
+      }
+
+      h1 {
+        font-size: 1.4rem;
+      }
+      h2 {
+        font-size: 1.1rem;
+      }
+
+      canvas#chart {
+        width: 100%;
+        height: 170px;
+        display: block;
+        border-radius: var(--pico-border-radius);
+        background: var(--pico-card-background-color);
+        margin-bottom: var(--pico-spacing);
+      }
+
+      #summary.error {
+        color: var(--pico-del-color);
+      }
+      #mode-note {
+        margin-top: calc(var(--pico-spacing) * -0.5);
+      }
+
+      .stat,
+      .cell,
+      .diag {
+        padding: 0.6rem 0.8rem;
+        text-align: center;
+      }
+      .stat .label,
+      .cell .label,
+      .diag .label {
+        font-weight: 600;
+        margin-bottom: 0.3rem;
+      }
+      .stat .value {
+        font-size: 1.3rem;
+        font-weight: 600;
+      }
+
+      .cell .state,
+      .diag .reason {
+        font-size: 0.85rem;
+        min-height: 2em;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .cell.active .state {
+        color: #1a7f37;
+      }
+      .cell.bypassed .state {
+        color: var(--pico-del-color);
+      }
+      .cell button {
+        width: 100%;
+      }
+
+      .diag .reason {
+        color: var(--pico-muted-color);
+      }
+      .diag .since {
+        font-size: 0.75rem;
+        color: var(--pico-muted-color);
+      }
+      .diag .badge {
+        display: inline-block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        padding: 0.15rem 0.6rem;
+        border-radius: 999px;
+        margin-bottom: 0.4rem;
+      }
+      .diag.healthy .badge {
+        background: #e6f4ea;
+        color: #1a7f37;
+      }
+      .diag.obstacle .badge,
+      .diag.defect .badge {
+        background: #fdecea;
+        color: #b00020;
+      }
+      .diag.dirt .badge,
+      .diag.dust .badge,
+      .diag.cloud .badge {
+        background: #fff4e5;
+        color: #b26a00;
+      }
+      .diag.unknown .badge,
+      .diag.shaded .badge {
+        background: #f1f1f1;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Solar Cells Optimizer</h1>
+        <p id="summary">waiting for the sketch…</p>
+      </header>
+
+      <div role="group" id="mode-toggle">
+        <button type="button" id="mode-manual">Manual</button>
+        <button type="button" id="mode-optimization" class="secondary">
+          Optimization
+        </button>
+      </div>
+      <p id="mode-note" class="secondary"></p>
+
+      <section class="grid" id="stats">
+        <article class="stat">
+          <div class="label">Voltage (RL)</div>
+          <div class="value" id="stat-v">–</div>
+        </article>
+        <article class="stat">
+          <div class="label">Current</div>
+          <div class="value" id="stat-ma">–</div>
+        </article>
+        <article class="stat">
+          <div class="label">Power</div>
+          <div class="value" id="stat-mw">–</div>
+        </article>
+      </section>
+
+      <canvas id="chart"></canvas>
+
+      <h2>Cells</h2>
+      <section class="grid" id="cells"></section>
+
+      <h2>Diagnostics</h2>
+      <p class="secondary">Deduced in Optimization mode.</p>
+      <section class="grid" id="diagnostics"></section>
+    </main>
+
+    <script>
+      let current_mode = "manual";
+
+      const canvas = document.getElementById("chart");
+      const ctx = canvas.getContext("2d");
+
+      function resize_canvas() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      window.addEventListener("resize", resize_canvas);
+
+      function draw_chart(history) {
+        const rect = canvas.getBoundingClientRect();
+        const w = rect.width,
+          h = rect.height;
+        const pad_l = 46,
+          pad_b = 20,
+          pad_t = 10,
+          pad_r = 10;
+        ctx.clearRect(0, 0, w, h);
+
+        const points = history.filter((p) => p.ma !== null);
+        if (points.length < 2) {
+          ctx.fillStyle = "#999";
+          ctx.fillText("no current readings yet", pad_l, h / 2);
+          return;
+        }
+
+        const t0 = points[0].t,
+          t1 = points[points.length - 1].t;
+        const max_ma = Math.max(1, ...points.map((p) => p.ma)) * 1.1;
+        const x = (t) =>
+          pad_l + (w - pad_l - pad_r) * ((t - t0) / Math.max(1, t1 - t0));
+        const y = (ma) => pad_t + (h - pad_t - pad_b) * (1 - ma / max_ma);
+
+        ctx.strokeStyle = "#ddd";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(pad_l, pad_t);
+        ctx.lineTo(pad_l, h - pad_b);
+        ctx.lineTo(w - pad_r, h - pad_b);
+        ctx.stroke();
+
+        ctx.fillStyle = "#666";
+        ctx.font = "11px system-ui, sans-serif";
+        ctx.fillText(max_ma.toFixed(0) + " mA", 2, pad_t + 10);
+        ctx.fillText("0", 2, h - pad_b);
+
+        ctx.strokeStyle = "#1a7f37";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        points.forEach((p, i) => {
+          const px = x(p.t),
+            py = y(p.ma);
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.stroke();
+
+        const last = points[points.length - 1];
+        ctx.fillStyle = "#111";
+        ctx.font = "13px system-ui, sans-serif";
+        ctx.fillText(last.ma.toFixed(1) + " mA", w - pad_r - 70, pad_t + 14);
+      }
+
+      function render_stats(latest) {
+        const v =
+          latest && latest.v !== null ? latest.v.toFixed(3) + " V" : "–";
+        const ma =
+          latest && latest.ma !== null ? latest.ma.toFixed(1) + " mA" : "–";
+        const mw =
+          latest && latest.mw !== null ? latest.mw.toFixed(1) + " mW" : "–";
+        document.getElementById("stat-v").textContent = v;
+        document.getElementById("stat-ma").textContent = ma;
+        document.getElementById("stat-mw").textContent = mw;
+      }
+
+      // Built once per cell, then only updated in place.
+      function ensure_cell_elements(count) {
+        const el = document.getElementById("cells");
+        if (el.children.length === count) return;
+        el.innerHTML = "";
+        for (let i = 0; i < count; i++) {
+          const card = document.createElement("article");
+          card.className = "cell";
+          card.innerHTML =
+            '<div class="label">Cell ' +
+            i +
+            "</div>" +
+            '<div class="state"></div>' +
+            '<button type="button"></button>';
+          card.querySelector("button").addEventListener("click", () => {
+            set_relay(i, card.dataset.bypassed === "1" ? 0 : 1);
+          });
+          el.appendChild(card);
+        }
+      }
+
+      function render_cells(cells) {
+        ensure_cell_elements(cells.length);
+        const el = document.getElementById("cells");
+        cells.forEach((cell, i) => {
+          const card = el.children[i];
+          card.dataset.bypassed = cell.bypassed ? "1" : "0";
+          card.className = "cell " + (cell.bypassed ? "bypassed" : "active");
+          card.querySelector(".state").textContent = cell.bypassed
+            ? "bypassed (excluded)"
+            : "in circuit";
+          const btn = card.querySelector("button");
+          btn.textContent = cell.bypassed ? "Restore" : "Bypass";
+          btn.disabled = current_mode !== "manual";
+        });
+      }
+
+      function ensure_diag_elements(count) {
+        const el = document.getElementById("diagnostics");
+        if (el.children.length === count) return;
+        el.innerHTML = "";
+        for (let i = 0; i < count; i++) {
+          const card = document.createElement("article");
+          card.className = "diag";
+          card.innerHTML =
+            '<div class="label"></div>' +
+            '<div class="badge"></div>' +
+            '<div class="reason"></div>' +
+            '<div class="since"></div>';
+          el.appendChild(card);
+        }
+      }
+
+      function render_diagnostics(diag_cells) {
+        ensure_diag_elements(diag_cells.length);
+        const el = document.getElementById("diagnostics");
+        diag_cells.forEach((d, i) => {
+          const card = el.children[i];
+          card.className = "diag " + d.status;
+          card.querySelector(".label").textContent = "Cell " + d.id;
+          card.querySelector(".badge").textContent = d.status;
+          card.querySelector(".reason").textContent =
+            d.status_reason || "no data yet";
+          const active_s = d.open_event ? d.open_event.active_s : null;
+          card.querySelector(".since").textContent =
+            active_s !== null ? `active ${active_s.toFixed(0)}s` : "";
+        });
+      }
+
+      async function set_relay(index, bypassed) {
+        if (current_mode !== "manual") return;
+        const el = document.getElementById("cells");
+        const btn =
+          el.children[index] && el.children[index].querySelector("button");
+        if (btn) btn.disabled = true;
+        try {
+          const r = await fetch(`/relay?index=${index}&bypassed=${bypassed}`, {
+            cache: "no-store",
+          });
+          const j = await r.json();
+          if (!j.ok) console.warn("relay command refused:", j.error);
+        } catch (e) {
+          console.error(e);
+        }
+        tick();
+      }
+
+      async function set_mode(mode) {
+        try {
+          const r = await fetch(`/mode?mode=${mode}`, { cache: "no-store" });
+          const j = await r.json();
+          if (j.ok) current_mode = j.mode;
+        } catch (e) {
+          console.error(e);
+        }
+        tick();
+      }
+      document
+        .getElementById("mode-manual")
+        .addEventListener("click", () => set_mode("manual"));
+      document
+        .getElementById("mode-optimization")
+        .addEventListener("click", () => set_mode("optimization"));
+
+      function render_mode(mode, optimizer) {
+        current_mode = mode;
+        document
+          .getElementById("mode-manual")
+          .classList.toggle("secondary", mode !== "manual");
+        document
+          .getElementById("mode-optimization")
+          .classList.toggle("secondary", mode !== "optimization");
+        document.getElementById("mode-note").textContent =
+          mode === "manual"
+            ? "You choose which cells to bypass."
+            : `Optimizer is in control (${optimizer.status}), switch to Manual to override.`;
+      }
+
+      function show(j) {
+        const summary = document.getElementById("summary");
+        if (j.cell_count === null) {
+          summary.textContent = "waiting for the sketch…";
+          summary.className = "";
+          document.getElementById("cells").innerHTML = "";
+          return;
+        }
+        const age = j.last_sample_age_s === null ? "?" : j.last_sample_age_s;
+        summary.textContent =
+          `${j.cell_count} cell(s) · last sample ${age}s ago · ${j.history.length} points in history` +
+          (j.last_error ? ` · ${j.last_error}` : "");
+        summary.className = j.last_error ? "error" : "";
+
+        render_mode(j.mode, j.optimizer);
+        render_stats(j.latest);
+        draw_chart(j.history);
+        render_cells(j.cells);
+        render_diagnostics(j.diagnostics);
+      }
+
+      // Drop responses from superseded requests, so a late/stale one can't
+      // overwrite a fresher render.
+      let tick_seq = 0;
+      async function tick() {
+        const seq = ++tick_seq;
+        try {
+          const r = await fetch("/state", { cache: "no-store" });
+          const j = await r.json();
+          if (seq === tick_seq) show(j);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      resize_canvas();
+      setInterval(tick, 200);
+      tick();
+    </script>
+  </body>
+</html>

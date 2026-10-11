@@ -13,9 +13,7 @@ CurrentGraph current_graph;
 
 int32_t get_cell_count() { return (int32_t)CELLS_COUNT; }
 
-// Set the relay for a given cell index safely (ensuring that at least one cell
-// remains active). Returns `-1` on invalid index, `0` if the request was
-// ignored, or `1` on success.
+// Keeps at least one cell active. Returns -1 (bad index), 0 (refused), or 1 (ok).
 int32_t set_relay(int32_t index, int32_t bypassed) {
   if (index < 0 || (size_t)index >= CELLS_COUNT)
     return -1;

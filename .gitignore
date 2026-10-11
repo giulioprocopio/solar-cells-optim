@@ -1,2 +1,16 @@
 # MacOS
 .DS_Store
+
+# Python
+__pycache__/
+
+# App Lab runtime (App-generated, not source)
+data/
+.cache/
+
+# LaTeX build artifacts (keep circuit.tex, circuit.pdf, circuit.png)
+docs/*.aux
+docs/*.log
+docs/*.fls
+docs/*.fdb_latexmk
+docs/*.synctex.gz

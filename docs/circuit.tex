@@ -1,0 +1,61 @@
+% Solar Cells Optimizer -- full hardware layout, including the UNO Q itself.
+% Compile: pdflatex circuit.tex
+\documentclass[border=4pt]{standalone}
+\usepackage{circuitikz}
+\ctikzset{resistors/scale=0.8, sources/scale=0.8, switches/scale=0.8}
+\begin{document}
+\begin{circuitikz}[scale=1.15, every node/.append style={font=\small}]
+
+  % --- bottom rail (GND / N0) ---
+  \draw (0,0) to[short] (6,0);
+  \draw (0,0) node[ground]{};
+
+  % --- Panel A, N0..N1, with Relay A's contact in parallel ---
+  \draw (0,0) to[pvsource, l=Panel A] (0,2) coordinate (N1);
+  \draw (1.4,0) to[spst] (1.4,2) coordinate (RAmid) at (1.4,1);
+  \draw (0,0) -- (1.4,0);
+  \draw (0,2) -- (1.4,2);
+
+  % --- Panel B, N1..N2, with Relay B's contact in parallel ---
+  \draw (0,2) to[pvsource, l=Panel B] (0,4) coordinate (N2);
+  \draw (1.4,2) to[spst] (1.4,4) coordinate (RBmid) at (1.4,3);
+  \draw (1.4,4) -- (0,4);
+
+  % --- load resistor, N2 back to GND ---
+  \draw (0,4) -- (4,4) coordinate (NR);
+  \draw (4,4) to[R, l=$R_L$=10$\,\Omega$] (4,0);
+  \draw (4,0) -- (3,0);
+
+  % --- Grove relay modules: SIG/VCC/GND, dashed link to the contact they drive ---
+  \node[draw, minimum width=1.3cm, minimum height=0.6cm, font=\scriptsize] (RA) at (3,1) {Relay A};
+  \draw[dashed] (RAmid) -- (RA.west);
+  \node[draw, minimum width=1.3cm, minimum height=0.6cm, font=\scriptsize] (RB) at (3,3) {Relay B};
+  \draw[dashed] (RBmid) -- (RB.west);
+
+  % --- Arduino UNO Q ---
+  \draw (7,-0.4) rectangle (9.8,4.9);
+  \node[align=center] at (8.4,2.25) {Arduino\\UNO Q};
+
+  % A0 <- R_L's top node
+  \draw (NR) -- (4,4.5) -- (7,4.5);
+  \node[above, font=\scriptsize] at (5.5,4.5) {A0};
+
+  % D10 -> Relay A SIG
+  \draw (RA.east) -| (5,3.4) -- (7,3.4);
+  \node[above, font=\scriptsize] at (6,3.4) {D10};
+
+  % D9 -> Relay B SIG
+  \draw (RB.east) -| (5.4,2.3) -- (7,2.3);
+  \node[above, font=\scriptsize] at (6.2,2.3) {D9};
+
+  % 3V3 -> both relay modules' VCC (single bus between the two boxes)
+  \draw (RA.north) -- (RB.south);
+  \draw (3,2) -| (5.8,1.3) -- (7,1.3);
+  \node[above, font=\scriptsize] at (6.4,1.3) {3V3};
+
+  % GND -> shared reference
+  \draw (6,0) -- (7,0);
+  \node[above, font=\scriptsize] at (6.5,0) {GND};
+
+\end{circuitikz}
+\end{document}
